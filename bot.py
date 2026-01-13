@@ -13,11 +13,10 @@ client = None
 
 def log(msg):
     ts = datetime.now().strftime('%H:%M:%S')
-    logmsg = f"[{ts}] {msg}"
-    print(logmsg)
+    print(f"[{ts}] {msg}")
     try:
         with open("bot.log", "a") as f:
-            f.write(logmsg + "")
+            f.write(f"[{ts}] {msg}")
     except:
         pass
 
@@ -34,22 +33,23 @@ def token_login():
         return False
 
 def start():
-    log("🚀 🔥 NEON BOT v6.0 - TOKEN EDITION 🔥")
+    log("🚀 🔥 NEON BOT v6.2 - FULL AUTO!")
     
     if not token_login():
-        log("💥 TOKEN LOGIN FAILED!")
+        log("💥 TOKEN LOGIN FAILED - Check config.py")
         return False
     
     for gid in GROUP_IDS:
         try:
             t = client.direct_thread(gid)
             known_members[gid] = {u.pk for u in t.users}
-            log(f"✅ Group {gid[:8]}... OK ({len(t.users)} members)")
-        except:
+            log(f"✅ Group {gid[:8]}... ({len(t.users)} members)")
+        except Exception as e:
+            log(f"⚠️ Group {gid}: {str(e)[:30]}")
             known_members[gid] = set()
     
-    log("🎉 BOT FULLY OPERATIONAL!")
-    log("💡 Commands: /help /ping /stats")
+    log("🎉 BOT 100% LIVE!")
+    log("💡 /help /ping /stats commands ready!")
     return True
 
 def handle_msg(gid, t, msg):
@@ -64,29 +64,36 @@ def handle_msg(gid, t, msg):
     # Auto replies
     for k, v in AUTO_REPLIES.items():
         if k in text:
-            client.direct_send(v, [gid])
-            log(f"🤖 Auto-reply: @{sender_name}")
+            try:
+                client.direct_send(v, [gid])
+                log(f"🤖 Auto: @{sender_name}")
+            except:
+                pass
             return
     
     # Commands
     for cmd in COMMANDS:
         if text.startswith(cmd):
-            if cmd == "/stats":
-                client.direct_send(f"📊 Total welcomes: {STATS['total']}", [gid])
-            else:
-                client.direct_send(COMMANDS[cmd], [gid])
-            log(f"📱 @{sender_name}: {text}")
+            try:
+                if cmd == "/stats":
+                    client.direct_send(f"📊 Total welcomes: {STATS['total']}", [gid])
+                else:
+                    client.direct_send(COMMANDS[cmd], [gid])
+                log(f"📱 @{sender_name}: {text}")
+            except:
+                pass
             return
 
 if __name__ == "__main__":
     if start():
         last_msgs = {}
+        log("🔄 Bot loop started - monitoring groups...")
         while True:
             for gid in GROUP_IDS:
                 try:
                     t = client.direct_thread(gid)
                     
-                    # Check new messages
+                    # New messages
                     if last_msgs.get(gid) and t.messages:
                         new_msgs = [m for m in t.messages if m.id != last_msgs[gid]]
                         for msg in reversed(new_msgs):
@@ -94,7 +101,7 @@ if __name__ == "__main__":
                     
                     last_msgs[gid] = t.messages[0].id if t.messages else None
                     
-                    # NEW MEMBER DETECTION
+                    # NEW MEMBERS
                     current_members = {u.pk for u in t.users}
                     new_members = current_members - known_members.get(gid, set())
                     
@@ -103,13 +110,16 @@ if __name__ == "__main__":
                             user.username and 
                             user.username != SESSION_TOKEN.split(':')[0]):
                             
-                            log(f"👋 NEW MEMBER: @{user.username}")
+                            log(f"👋 NEW: @{user.username}")
                             STATS["total"] += 1
                             
                             for msgt in WELCOME_MSGS:
                                 welcome = msgt.replace("@user", f"@{user.username}")
-                                client.direct_send(welcome, [gid])
-                                time.sleep(DELAY)
+                                try:
+                                    client.direct_send(welcome, [gid])
+                                    time.sleep(DELAY)
+                                except:
+                                    break
                             
                             known_members[gid] = current_members
                             break
@@ -117,6 +127,10 @@ if __name__ == "__main__":
                     known_members[gid] = current_members
                     
                 except Exception as e:
-                    log(f"⚠️ Error: {str(e)[:40]}")
+                    log(f"⚠️ Loop: {str(e)[:40]}")
             
             time.sleep(POLL)
+    else:
+        log("💥 START FAILED - Check SESSION_TOKEN")
+        while True:
+            time.sleep(60)
