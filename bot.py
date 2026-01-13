@@ -17,8 +17,7 @@ def log(msg):
     print(logmsg)
     try:
         with open("bot.log", "a") as f:
-            f.write(logmsg + "
-")
+            f.write(logmsg + "")
     except:
         pass
 
