@@ -12,8 +12,7 @@ app = Flask(__name__)
 STATS = {"total": 0}
 known_members = {}
 client = None
-message_queue = []
-last_processed_msg = {}
+last_message_ids = {}
 
 def log(msg):
     ts = datetime.now().strftime('%H:%M:%S')
@@ -31,71 +30,76 @@ def token_login():
         log(f"💥 LOGIN ERROR: {str(e)[:50]}")
         return False
 
-def handle_command(gid, sender_name, text):
-    """Handle all commands including /help"""
-    text_lower = text.strip().lower()
+def process_message(gid, msg):
+    """Process single message for commands"""
+    if not msg or not msg.text:
+        return
     
-    # Auto replies first
+    text = msg.text.strip().lower()
+    sender = None
+    
+    try:
+        thread = client.direct_thread(gid)
+        sender = next((u for u in thread.users if u.pk == msg.user_id), None)
+    except:
+        return
+    
+    if not sender or sender.username == client.user_id:
+        return
+    
+    sender_name = sender.username
+    
+    log(f"📨 New msg from @{sender_name}: {text[:30]}")
+    
+    # AUTO REPLIES
     for keyword, reply in AUTO_REPLIES.items():
-        if keyword in text_lower:
+        if keyword in text:
             try:
                 client.direct_send(reply, [gid])
-                log(f"🤖 Auto-reply to @{sender_name}: {keyword}")
-                return True
+                log(f"🤖 Auto-reply to @{sender_name}")
+                return
             except:
                 pass
     
-    # Commands
+    # COMMANDS
     for cmd, response in COMMANDS.items():
-        if text_lower.startswith(cmd):
+        if text.startswith(cmd):
             try:
                 if cmd == "/stats":
                     client.direct_send(f"📊 Total welcomes: {STATS['total']}", [gid])
                 else:
                     client.direct_send(response, [gid])
-                log(f"📱 @{sender_name} used {cmd}")
-                return True
+                log(f"✅ @{sender_name} → {cmd}")
+                return
             except Exception as e:
-                log(f"⚠️ Command error: {str(e)[:30]}")
-    
-    return False
+                log(f"⚠️ Command failed: {str(e)[:30]}")
 
-def message_checker():
-    """Background thread - checks messages every 3 seconds"""
-    global message_queue, last_processed_msg
+def message_monitor():
+    """Monitor messages every 5 seconds"""
+    global last_message_ids
     
     while client:
         try:
             for gid in GROUP_IDS:
-                if gid not in last_processed_msg:
-                    last_processed_msg[gid] = 0
+                if gid not in last_message_ids:
+                    last_message_ids[gid] = 0
                 
                 thread = client.direct_thread(gid)
-                messages = thread.messages
+                messages = thread.messages[:10]  # Last 10 messages
                 
-                if messages:
-                    latest_msg_id = messages[0].id
-                    
-                    # Process new messages
-                    if latest_msg_id != last_processed_msg[gid]:
-                        new_msg = messages[0]
-                        
-                        sender = next((u for u in thread.users if u.pk == new_msg.user_id), None)
-                        if sender and sender.username != client.user_id:
-                            handled = handle_command(gid, sender.username, new_msg.text or "")
-                            if handled:
-                                log(f"✅ Command processed in {gid[:8]}")
-                        
-                        last_processed_msg[gid] = latest_msg_id
+                for msg in messages:
+                    if msg.id > last_message_ids[gid]:
+                        process_message(gid, msg)
+                        last_message_ids[gid] = max(last_message_ids[gid], msg.id)
             
-            time.sleep(3)  # Check every 3 seconds
+            time.sleep(5)  # Check every 5 seconds
             
         except Exception as e:
-            log(f"⚠️ Message check error: {str(e)[:40]}")
-            time.sleep(5)
+            log(f"⚠️ Monitor error: {str(e)[:40]}")
+            time.sleep(10)
 
-def member_checker():
-    """Background thread - checks new members"""
+def member_monitor():
+    """Monitor new members"""
     global known_members
     
     while client:
@@ -109,17 +113,14 @@ def member_checker():
                 new_members = current_members - known_members[gid]
                 
                 for user in thread.users:
-                    if (user.pk in new_members and 
-                        user.username and 
-                        user.username != SESSION_TOKEN.split(':')[0]):
-                        
-                        log(f"👋 NEW MEMBER: @{user.username}")
+                    if (user.pk in new_members and user.username):
+                        log(f"👋 NEW: @{user.username}")
                         STATS["total"] += 1
                         
-                        for msg_template in WELCOME_MSGS:
-                            welcome_msg = msg_template.replace("@user", f"@{user.username}")
+                        for msgt in WELCOME_MSGS:
+                            welcome = msgt.replace("@user", f"@{user.username}")
                             try:
-                                client.direct_send(welcome_msg, [gid])
+                                client.direct_send(welcome, [gid])
                                 time.sleep(DELAY)
                             except:
                                 break
@@ -132,40 +133,38 @@ def member_checker():
             time.sleep(POLL)
             
         except Exception as e:
-            log(f"⚠️ Member check error: {str(e)[:40]}")
+            log(f"⚠️ Member error: {str(e)[:40]}")
             time.sleep(10)
 
-def start_bot():
-    """Start both background threads"""
-    global client
-    
+def start_services():
+    """Start both monitoring services"""
     if token_login():
-        # Start message checker thread
-        threading.Thread(target=message_checker, daemon=True).start()
-        log("✅ Message checker started")
+        # Message monitoring
+        threading.Thread(target=message_monitor, daemon=True).start()
+        log("✅ Message monitor ACTIVE")
         
-        # Start member checker thread  
-        threading.Thread(target=member_checker, daemon=True).start()
-        log("✅ Member checker started")
+        # Member monitoring  
+        threading.Thread(target=member_monitor, daemon=True).start()
+        log("✅ Member monitor ACTIVE")
         
-        log("🎉 ALL SYSTEMS LIVE!")
+        log("🎉 BOT FULLY OPERATIONAL!")
         return True
     return False
 
 @app.route('/')
-def health():
-    return f"🤖 NEON BOT LIVE! Total: {STATS['total']} | Groups: {len(GROUP_IDS)}"
+def home():
+    return f"🤖 NEON BOT LIVE!<br>Total: {STATS['total']}<br>Groups: {len(GROUP_IDS)}"
 
 @app.route('/ping')
 def ping():
-    return "✅ Bot Active! Commands working!"
+    return "✅ Bot Active - Commands Working!"
 
-@app.route('/stats')
-def stats():
-    return f"📊 Welcomes: {STATS['total']} | Groups monitored: {len(GROUP_IDS)}"
+@app.route('/debug')
+def debug():
+    return f"Client: {client is not None}<br>Groups: {GROUP_IDS}<br>Last IDs: {len(last_message_ids)}"
 
 if __name__ == "__main__":
-    start_bot()
+    start_services()
     port = int(os.environ.get('PORT', 10000))
-    log(f"🌐 Starting Flask server on port {port}")
+    log(f"🌐 Flask server on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
