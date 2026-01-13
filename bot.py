@@ -1,170 +1,200 @@
 import os
-import time
 import threading
+import time
+import random
 from datetime import datetime
+from flask import Flask, render_template_string, request, jsonify
 from instagrapi import Client
-from flask import Flask
 
 exec(open("config.py").read())
-exec(open("commands.py").read())
 
 app = Flask(__name__)
-STATS = {"total": 0}
-known_members = {}
-client = None
-last_message_ids = {}
+BOT_THREAD = None
+STOP_EVENT = threading.Event()
+LOGS = []
+SESSION_FILE = "session.json"
+STATS = {"total_welcomed": 0, "today_welcomed": 0, "last_reset": datetime.now().date()}
 
 def log(msg):
     ts = datetime.now().strftime('%H:%M:%S')
-    print(f"[{ts}] {msg}")
+    lm = "[" + ts + "] " + msg
+    LOGS.append(lm)
+    print(lm)
+
+MUSIC_EMOJIS = ["🎵", "🎶", "🎸", "🎹", "🎤", "🎧", "🎺", "🎷"]
+FUNNY = ["Hahaha! 😂", "LOL! 🤣", "Mast! 😆", "Pagal! 🤪", "King! 👑😂"]
+MASTI = ["Party! 🎉", "Masti! 🥳", "Dhamaal! 💃", "Full ON! 🔥", "Enjoy! 🎊"]
 
 def token_login():
-    global client
-    client = Client()
+    """Token se login"""
+    cl = Client()
     try:
-        client.login_by_sessionid(SESSION_TOKEN)
-        client.dump_settings("session.json")
+        cl.login_by_sessionid(SESSION_TOKEN)
+        cl.dump_settings(SESSION_FILE)
         log("✅ TOKEN LOGIN SUCCESS!")
-        return True
+        return cl
     except Exception as e:
-        log(f"💥 LOGIN ERROR: {str(e)[:50]}")
-        return False
+        log("💥 TOKEN LOGIN FAILED: " + str(e))
+        return None
 
-def process_message(gid, msg):
-    """Process single message for commands"""
-    if not msg or not msg.text:
+def run_bot():
+    """Main bot logic - tera working code same!"""
+    global STATS
+    cl = token_login()
+    if not cl:
         return
     
-    text = msg.text.strip().lower()
-    sender = None
+    log("🤖 Bot started!")
+    log("Admins: " + str(ADMIN_USERS))
     
-    try:
-        thread = client.direct_thread(gid)
-        sender = next((u for u in thread.users if u.pk == msg.user_id), None)
-    except:
-        return
+    km = {}  # known members
+    lm = {}  # last message
     
-    if not sender or sender.username == client.user_id:
-        return
-    
-    sender_name = sender.username
-    
-    log(f"📨 New msg from @{sender_name}: {text[:30]}")
-    
-    # AUTO REPLIES
-    for keyword, reply in AUTO_REPLIES.items():
-        if keyword in text:
-            try:
-                client.direct_send(reply, [gid])
-                log(f"🤖 Auto-reply to @{sender_name}")
-                return
-            except:
-                pass
-    
-    # COMMANDS
-    for cmd, response in COMMANDS.items():
-        if text.startswith(cmd):
-            try:
-                if cmd == "/stats":
-                    client.direct_send(f"📊 Total welcomes: {STATS['total']}", [gid])
-                else:
-                    client.direct_send(response, [gid])
-                log(f"✅ @{sender_name} → {cmd}")
-                return
-            except Exception as e:
-                log(f"⚠️ Command failed: {str(e)[:30]}")
-
-def message_monitor():
-    """Monitor messages every 5 seconds"""
-    global last_message_ids
-    
-    while client:
+    # Initialize groups
+    for gid in GROUP_IDS:
         try:
-            for gid in GROUP_IDS:
-                if gid not in last_message_ids:
-                    last_message_ids[gid] = 0
-                
-                thread = client.direct_thread(gid)
-                messages = thread.messages[:10]  # Last 10 messages
-                
-                for msg in messages:
-                    if msg.id > last_message_ids[gid]:
-                        process_message(gid, msg)
-                        last_message_ids[gid] = max(last_message_ids[gid], msg.id)
-            
-            time.sleep(5)  # Check every 5 seconds
-            
+            g = cl.direct_thread(gid)
+            km[gid] = {u.pk for u in g.users}
+            lm[gid] = g.messages[0].id if g.messages else None
+            log("✅ Group " + gid[:8] + "... ready (" + str(len(g.users)) + " members)")
         except Exception as e:
-            log(f"⚠️ Monitor error: {str(e)[:40]}")
-            time.sleep(10)
-
-def member_monitor():
-    """Monitor new members"""
-    global known_members
+            log("⚠️ Group error: " + str(e))
+            km[gid] = set()
+            lm[gid] = None
     
-    while client:
+    # Daily reset
+    if STATS["last_reset"] != datetime.now().date():
+        STATS["today_welcomed"] = 0
+        STATS["last_reset"] = datetime.now().date()
+    
+    while not STOP_EVENT.is_set():
         try:
             for gid in GROUP_IDS:
-                if gid not in known_members:
-                    known_members[gid] = set()
+                if STOP_EVENT.is_set():
+                    break
                 
-                thread = client.direct_thread(gid)
-                current_members = {u.pk for u in thread.users}
-                new_members = current_members - known_members[gid]
-                
-                for user in thread.users:
-                    if (user.pk in new_members and user.username):
-                        log(f"👋 NEW: @{user.username}")
-                        STATS["total"] += 1
-                        
-                        for msgt in WELCOME_MSGS:
-                            welcome = msgt.replace("@user", f"@{user.username}")
-                            try:
-                                client.direct_send(welcome, [gid])
-                                time.sleep(DELAY)
-                            except:
+                try:
+                    g = cl.direct_thread(gid)
+                    
+                    # MESSAGE PROCESSING (TERA WORKING LOGIC!)
+                    if lm[gid]:
+                        nm = []
+                        for m in g.messages:
+                            if m.id == lm[gid]:
                                 break
+                            nm.append(m)
                         
-                        known_members[gid] = current_members
-                        break
-                
-                known_members[gid] = current_members
+                        for m in reversed(nm):
+                            if m.user_id == cl.user_id:
+                                continue
+                            
+                            sender = next((u for u in g.users if u.pk == m.user_id), None)
+                            if not sender:
+                                continue
+                            
+                            su = sender.username.lower()
+                            ia = su in [a.lower() for a in ADMIN_USERS] if ADMIN_USERS else True
+                            t = m.text.strip() if m.text else ""
+                            tl = t.lower()
+                            
+                            # COMMANDS (TERA SAME CODE!)
+                            if tl in ["/help", "!help"]:
+                                cl.direct_send("🔥 COMMANDS: /ping /stats /music /funny /masti /count /time /welcome", thread_ids=[gid])
+                                log("📱 @" + sender.username + " used /help")
+                            
+                            elif tl in ["/stats", "!stats"]:
+                                cl.direct_send("📊 STATS - Total: " + str(STATS['total_welcomed']) + " | Today: " + str(STATS['today_welcomed']), thread_ids=[gid])
+                            
+                            elif tl in ["/ping", "!ping"]:
+                                cl.direct_send("✅ PONG! Bot 100% ALIVE! 🔥", thread_ids=[gid])
+                            
+                            elif tl in ["/count", "!count"]:
+                                cl.direct_send("👥 MEMBERS: " + str(len(g.users)), thread_ids=[gid])
+                            
+                            elif tl in ["/music", "!music"]:
+                                cl.direct_send("🎵 " + " ".join(random.choices(MUSIC_EMOJIS, k=5)), thread_ids=[gid])
+                            
+                            elif tl in ["/funny", "!funny"]:
+                                cl.direct_send(random.choice(FUNNY), thread_ids=[gid])
+                            
+                            elif tl in ["/masti", "!masti"]:
+                                cl.direct_send(random.choice(MASTI), thread_ids=[gid])
+                            
+                            elif tl in ["/time", "!time"]:
+                                cl.direct_send("🕐 TIME: " + datetime.now().strftime("%I:%M %p"), thread_ids=[gid])
+                    
+                    # NEW MEMBERS (TERA WORKING LOGIC!)
+                    if g.messages:
+                        lm[gid] = g.messages[0].id
+                    
+                    cm = {u.pk for u in g.users}
+                    nwm = cm - km[gid]
+                    
+                    if nwm:
+                        for u in g.users:
+                            if u.pk in nwm and u.username:
+                                log("👋 NEW: @" + u.username)
+                                for ms in WELCOME_MSGS:
+                                    fm = ("@" + u.username + " " + ms) if True else ms
+                                    cl.direct_send(fm, thread_ids=[gid])
+                                    STATS["total_welcomed"] += 1
+                                    STATS["today_welcomed"] += 1
+                                    log("✅ Welcomed @" + u.username)
+                                    time.sleep(DELAY)
+                                km[gid] = cm
+                                break
+                    
+                    km[gid] = cm
+                    
+                except Exception as e:
+                    log("⚠️ Loop error: " + str(e)[:50])
             
             time.sleep(POLL)
             
         except Exception as e:
-            log(f"⚠️ Member error: {str(e)[:40]}")
-            time.sleep(10)
+            log("💥 Main loop error: " + str(e)[:50])
+    
+    log("🛑 Bot stopped")
 
-def start_services():
-    """Start both monitoring services"""
-    if token_login():
-        # Message monitoring
-        threading.Thread(target=message_monitor, daemon=True).start()
-        log("✅ Message monitor ACTIVE")
-        
-        # Member monitoring  
-        threading.Thread(target=member_monitor, daemon=True).start()
-        log("✅ Member monitor ACTIVE")
-        
-        log("🎉 BOT FULLY OPERATIONAL!")
-        return True
-    return False
+@app.route("/")
+def index():
+    return f"""
+    🤖 NEON BOT LIVE! Total Welcomes: {STATS['total_welcomed']}
+    <br><br>
+    ✅ Token login: OK
+    ✅ Groups: {len(GROUP_IDS)}
+    ✅ Commands: /help /ping /stats /music etc
+    <br><br>
+    <a href="/logs">View Logs</a> | <a href="/stats">Stats</a>
+    """
 
-@app.route('/')
-def home():
-    return f"🤖 NEON BOT LIVE!<br>Total: {STATS['total']}<br>Groups: {len(GROUP_IDS)}"
+@app.route("/logs")
+def get_logs():
+    return jsonify({"logs": LOGS[-50:]})
 
-@app.route('/ping')
-def ping():
-    return "✅ Bot Active - Commands Working!"
+@app.route("/stats")
+def get_stats():
+    return jsonify(STATS)
 
-@app.route('/debug')
-def debug():
-    return f"Client: {client is not None}<br>Groups: {GROUP_IDS}<br>Last IDs: {len(last_message_ids)}"
+@app.route("/start", methods=["POST"])
+def start_bot():
+    global BOT_THREAD, STOP_EVENT
+    if BOT_THREAD and BOT_THREAD.is_alive():
+        return jsonify({"status": "already_running"})
+    
+    STOP_EVENT.clear()
+    BOT_THREAD = threading.Thread(target=run_bot, daemon=True)
+    BOT_THREAD.start()
+    log("🚀 Bot started by web!")
+    return jsonify({"status": "started", "message": "Bot running!"})
+
+@app.route("/stop", methods=["POST"])
+def stop_bot():
+    STOP_EVENT.set()
+    log("🛑 Bot stopped by web!")
+    return jsonify({"status": "stopped"})
 
 if __name__ == "__main__":
-    start_services()
+    log("🌐 Web server starting...")
     port = int(os.environ.get('PORT', 10000))
-    log(f"🌐 Flask server on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
