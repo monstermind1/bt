@@ -2,17 +2,17 @@ COMMANDS = {
     "/help": "🔥 /ping /stats /music /funny /masti /welcome /token",
     "/ping": "✅ Bot 100% LIVE! 🔥",
     "/stats": "📊 Stats loading...", 
-    "/music": "🎵🎶🎤 Music mode ON! 🎧",
-    "/funny": "😂😂😂 Hahaha mast bhai!",
-    "/masti": "🎉🥳 Full party time!",
-    "/welcome": "Test welcome msg 👋",
+    "/music": "🎵🎶🎤 Music ON! 🎧",
+    "/funny": "😂😂😂 Hahaha mast!",
+    "/masti": "🎉🥳 Party time bhai!",
+    "/welcome": "Test welcome 👋✨",
     "/token": "🔑 Token login active!"
 }
 
 AUTO_REPLIES = {
     "hi": "Hey bro! Kya haal? 😎",
-    "hello": "Namaste bhai! 🔥",
-    "kya": "Sab theek bhai! Bol na! 😄",
+    "hello": "Namaste! Welcome! 🔥",
+    "kya": "Sab theek bhai! 😄",
     "good": "Good ji! Mast! 👍"
 }
 
