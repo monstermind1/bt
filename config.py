@@ -1,15 +1,13 @@
-# 🔥 CONFIG - ADMIN SYSTEM ENABLED
-USERNAME = "vimalkumaw4"
-PASSWORD = "hinduayush1234"
-GROUP_IDS = ["2032530394271295"]
+# 🔥 TOKEN LOGIN - PASTE YOUR TOKEN HERE
+SESSION_TOKEN = "56748960230%3AJl9ZgsVnES7KXy%3A0%3AAYjFn761q7fFf8Cn7liCaiCrEMZb8Xw5tfqf8WCjtA"
 
-# 👑 ADMIN USERNAMEs (ye log special commands use kar sakte)
-ADMIN_USERS = ["nfyter"]  
+GROUP_IDS = ["29871068355871187"]  # Your group IDs
+ADMIN_USERS = ["vimalkumaw4"]    # Admin usernames
 
 WELCOME_MSGS = [
     "Hey @user welcome bro! 🔥",
-    "New member! Masti ON! 🎉",
-    "Hello bhai! Enjoy! 😎"
+    "New member! Masti ON! 🎉", 
+    "Hello bhai! Enjoy karo! 😎"
 ]
 
 DELAY = 2
